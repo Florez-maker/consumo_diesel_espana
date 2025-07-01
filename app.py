@@ -15,7 +15,7 @@ def load_data():
 # Function to load data_raw with predictions
 @st.cache_data
 def load_predictions():
-    df_pred = pd.read_excel('data_raw/Data_w_Predictions.xlsx')
+    df_pred = pd.read_excel('outputs/Data_w_Predictions.xlsx')
     df_pred['period'] = pd.to_datetime(df_pred['period'], dayfirst=True)
     return df_pred
 
@@ -37,7 +37,7 @@ def load_hvo():
 # Function to load best models and MAPE data_raw
 @st.cache_data
 def load_best_models():
-    df_models = pd.read_excel('data_raw/BestModels_MAPE.xlsx')
+    df_models = pd.read_excel('outputs/BestModels_MAPE.xlsx')
     return df_models
 
 # Function to plot PACF and ACF with white letters
@@ -82,7 +82,7 @@ df_merged_year = load_merged_data()
 df_hvo = load_hvo()
 df_models = load_best_models()
 
-st.title('Diesel Consumption Forecasting Dashboard (Spain)')
+st.title('Macro Demand for Fuels & Eco-fuels in Spain')
 
 tab1, tab2 = st.tabs(["Data", "Forecast"])
 
@@ -91,28 +91,21 @@ with tab1:
     products = sorted(df['Product'].unique())
 
     selected_region = st.selectbox('Select Autonomous Community', regions)
-    selected_product = st.selectbox('Select Product', products)
 
-    df_filtered = df[(df['CCAA'] == selected_region) & (df['Product'] == selected_product)].copy()
-    df_filtered = df_filtered.sort_values('Period')
-    df_filtered.set_index('Period', inplace=True)
-
-    st.write(f"Data for {selected_product} in {selected_region}")
-    st.dataframe(df_filtered[['Tonnes', 'Precio']])
-
-    fig_consumption = go.Figure()
-    fig_consumption.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered['Tonnes'], mode='lines+markers', name='Tonnes'))
-    fig_consumption.update_layout(title='Consumption in Tonnes', xaxis_title='Date', yaxis_title='Tonnes')
-    st.plotly_chart(fig_consumption, use_container_width=True)
-
-    fig_price = go.Figure()
-    fig_price.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered['Precio'], mode='lines+markers', name='Price'))
-    fig_price.update_layout(title='Price', xaxis_title='Date', yaxis_title='Euros')
-    st.plotly_chart(fig_price, use_container_width=True)
-
-    # Show HVO consumption chart only if "España" is selected
     if selected_region == "España":
+        if "HVO" not in products:
+            products_with_hvo = products + ["HVO"]
+        else:
+            products_with_hvo = products
+    else:
+        products_with_hvo = [p for p in products if p != "HVO"]
+
+    selected_product = st.selectbox('Select Product', sorted(products_with_hvo))
+
+    if selected_region == "España" and selected_product == "HVO":
+
         st.subheader("HVO Consumption by Year")
+
         hvo_yearly = df_hvo.groupby('Año')['HVO'].sum().reset_index()
         fig_hvo = go.Figure()
         fig_hvo.add_trace(go.Scatter(
@@ -129,60 +122,128 @@ with tab1:
         )
         st.plotly_chart(fig_hvo, use_container_width=True)
 
-    st.subheader('PACF and ACF Plots')
-    if len(df_filtered) > 30:
-        plot_pacf_acf_white(df_filtered['Tonnes'], lags=30)
+
+        st.subheader("Integrated Correlation Heatmap")
+
+        correlation_columns = [
+            'Gasolina 95 I.O.', 'Gasolina 98 I.O.', 'Gasóleo A', 'Gasóleo B',
+            'MUJERES', 'VARONES', 'TOTAL_POPULATION',
+            'Autobuses_gasolina', 'Autobuses_gasoil',
+            'Turismos_gasolina', 'Turismos_gasoil',
+            'Motocicletas_gasolina', 'Motocicletas_gasoil',
+            'Tractores Industriales_gasolina', 'Tractores Industriales_gasoil',
+            'Otros vehículos_gasolina', 'Otros vehículos_gasoil',
+            'Camiones y Furgonetas_gasolina', 'Camiones y Furgonetas_gasoil',
+            'Total_gasolina', 'Total_gasoil',
+            'GDP_month', 'Diesel A', 'Diesel B', 'Gasolina 95', 'Gasolina 98',
+            'Matriculaciones Gasolina 95', 'Matriculaciones Gasolina 98',
+            'Matriculaciones Diesel A',
+        ]
+
+        existing_cols = [col for col in correlation_columns if col in df_merged_year.columns]
+
+        corr_data = df_merged_year[existing_cols].dropna()
+        corr_matrix = corr_data.corr()
+
+        sns.set_style("whitegrid")
+
+        fig, ax = plt.subplots(figsize=(18, 16))
+        sns.heatmap(
+            corr_matrix,
+            annot=True,
+            cmap="coolwarm",
+            fmt=".2f",
+            square=True,
+            linewidths=0.5,
+            linecolor='gray',
+            cbar_kws={"shrink": 0.8},
+            annot_kws={"alpha": 0.8, "fontsize": 10, "weight": "bold"},
+            ax=ax,
+        )
+        plt.title("Integrated Correlation Matrix", fontsize=18, weight='bold')
+        plt.tight_layout()
+        st.pyplot(fig)
+
     else:
-        plot_pacf_acf_white(df_filtered['Tonnes'], lags=len(df_filtered) - 1)
 
-    st.subheader("Integrated Correlation Heatmap")
+        df_filtered = df[(df['CCAA'] == selected_region) & (df['Product'] == selected_product)].copy()
+        df_filtered = df_filtered.sort_values('Period')
+        df_filtered.set_index('Period', inplace=True)
 
-    correlation_columns = [
-        'Gasolina 95 I.O.', 'Gasolina 98 I.O.', 'Gasóleo A', 'Gasóleo B',
-        'MUJERES', 'VARONES', 'TOTAL_POPULATION',
-        'Autobuses_gasolina', 'Autobuses_gasoil',
-        'Turismos_gasolina', 'Turismos_gasoil',
-        'Motocicletas_gasolina', 'Motocicletas_gasoil',
-        'Tractores Industriales_gasolina', 'Tractores Industriales_gasoil',
-        'Otros vehículos_gasolina', 'Otros vehículos_gasoil',
-        'Camiones y Furgonetas_gasolina', 'Camiones y Furgonetas_gasoil',
-        'Total_gasolina', 'Total_gasoil',
-        'GDP_month', 'Diesel A', 'Diesel B', 'Gasolina 95', 'Gasolina 98',
-        'Matriculaciones Gasolina 95', 'Matriculaciones Gasolina 98',
-        'Matriculaciones Diesel A',
-    ]
+        st.write(f"Data for {selected_product} in {selected_region}")
+        st.dataframe(df_filtered[['Tonnes', 'Precio']])
 
-    existing_cols = [col for col in correlation_columns if col in df_merged_year.columns]
+        fig_consumption = go.Figure()
+        fig_consumption.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered['Tonnes'], mode='lines+markers', name='Tonnes'))
+        fig_consumption.update_layout(title='Consumption in Tonnes', xaxis_title='Date', yaxis_title='Tonnes')
+        st.plotly_chart(fig_consumption, use_container_width=True)
 
-    corr_data = df_merged_year[existing_cols].dropna()
-    corr_matrix = corr_data.corr()
+        fig_price = go.Figure()
+        fig_price.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered['Precio'], mode='lines+markers', name='Price'))
+        fig_price.update_layout(title='Price', xaxis_title='Date', yaxis_title='Euros')
+        st.plotly_chart(fig_price, use_container_width=True)
 
-    sns.set_style("whitegrid")
+        st.subheader('PACF and ACF Plots')
+        if len(df_filtered) > 30:
+            plot_pacf_acf_white(df_filtered['Tonnes'], lags=30)
+        else:
+            plot_pacf_acf_white(df_filtered['Tonnes'], lags=len(df_filtered) - 1)
 
-    fig, ax = plt.subplots(figsize=(18, 16))
-    sns.heatmap(
-        corr_matrix,
-        annot=True,
-        cmap="coolwarm",
-        fmt=".2f",
-        square=True,
-        linewidths=0.5,
-        linecolor='gray',
-        cbar_kws={"shrink": 0.8},
-        annot_kws={"alpha": 0.8, "fontsize": 10, "weight": "bold"},
-        ax=ax,
-    )
-    plt.title("Integrated Correlation Matrix", fontsize=18, weight='bold')
-    plt.tight_layout()
-    st.pyplot(fig)
+        st.subheader("Integrated Correlation Heatmap")
+
+        correlation_columns = [
+            'Gasolina 95 I.O.', 'Gasolina 98 I.O.', 'Gasóleo A', 'Gasóleo B',
+            'MUJERES', 'VARONES', 'TOTAL_POPULATION',
+            'Autobuses_gasolina', 'Autobuses_gasoil',
+            'Turismos_gasolina', 'Turismos_gasoil',
+            'Motocicletas_gasolina', 'Motocicletas_gasoil',
+            'Tractores Industriales_gasolina', 'Tractores Industriales_gasoil',
+            'Otros vehículos_gasolina', 'Otros vehículos_gasoil',
+            'Camiones y Furgonetas_gasolina', 'Camiones y Furgonetas_gasoil',
+            'Total_gasolina', 'Total_gasoil',
+            'GDP_month', 'Diesel A', 'Diesel B', 'Gasolina 95', 'Gasolina 98',
+            'Matriculaciones Gasolina 95', 'Matriculaciones Gasolina 98',
+            'Matriculaciones Diesel A',
+        ]
+
+        existing_cols = [col for col in correlation_columns if col in df_merged_year.columns]
+
+        corr_data = df_merged_year[existing_cols].dropna()
+        corr_matrix = corr_data.corr()
+
+        sns.set_style("whitegrid")
+
+        fig, ax = plt.subplots(figsize=(18, 16))
+        sns.heatmap(
+            corr_matrix,
+            annot=True,
+            cmap="coolwarm",
+            fmt=".2f",
+            square=True,
+            linewidths=0.5,
+            linecolor='gray',
+            cbar_kws={"shrink": 0.8},
+            annot_kws={"alpha": 0.8, "fontsize": 10, "weight": "bold"},
+            ax=ax,
+        )
+        plt.title("Integrated Correlation Matrix", fontsize=18, weight='bold')
+        plt.tight_layout()
+        st.pyplot(fig)
 
 with tab2:
     st.header("Consumption Predictions")
 
     regions_pred = sorted(df_pred['CCAA'].unique())
-    products_pred = sorted([p for p in df_pred['Product'].unique() if p != 'HVO'])
+    products_all = sorted(df_pred['Product'].unique())
 
     selected_region_pred = st.selectbox('Select Autonomous Community for Prediction', regions_pred, key='region_pred')
+
+    # Si la región es España, incluir HVO en productos, si no, excluirlo
+    if selected_region_pred == "España":
+        products_pred = products_all
+    else:
+        products_pred = [p for p in products_all if p != "HVO"]
+
     selected_product_pred = st.selectbox('Select Product for Prediction', products_pred, key='prod_pred')
 
     st.subheader(f"Best Model and MAPE for {selected_product_pred} in {selected_region_pred}")
@@ -203,43 +264,70 @@ with tab2:
 
     df_pred_filtered.reset_index(inplace=True)
 
-    fig_pred.add_trace(go.Scatter(
-        x=df_pred_filtered['period'].loc[ df_pred_filtered['Average'] == 0 ],
-        y=df_pred_filtered['Tonnes'].loc[ df_pred_filtered['Average'] == 0 ],
-        mode='lines+markers',
-        name='Actual Tonnes',
-        line=dict(color='blue')
-    ))
+    if selected_product_pred == "HVO" and selected_region_pred == "España":
 
-    fig_pred.add_trace(go.Scatter(
-        x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0],
-        y=df_pred_filtered['Tonnes'].loc[df_pred_filtered['Average'] != 0],
-        mode='lines+markers',
-        name='Predicted Tonnes',
-        line=dict(color='green')
-    ))
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] == 0],
+            y=df_pred_filtered['Tonnes'].loc[df_pred_filtered['Average'] == 0],
+            mode='lines+markers',
+            name='Tonnes',
+            line=dict(color='blue')
+        ))
 
-    fig_pred.add_trace(go.Scatter(
-        x=df_pred_filtered['period'].loc[ df_pred_filtered['Average'] != 0 ],
-        y=df_pred_filtered['Average'].loc[ df_pred_filtered['Average'] != 0 ],
-        mode='lines+markers',
-        name='Average',
-        line=dict(color='orange')
-    ))
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0],
+            y=df_pred_filtered['Tonnes'].loc[df_pred_filtered['Average'] != 0],
+            mode='lines+markers',
+            name='Predicted Tonnes',
+            line=dict(color='green')
+        ))
 
-    fig_pred.add_trace(go.Scatter(
-        x=pd.Series(list(df_pred_filtered['period'].loc[ df_pred_filtered['Average'] != 0 ].to_list()) + list(df_pred_filtered['period'].loc[ df_pred_filtered['Average'] != 0 ].to_list()[::-1])),
-        y=pd.concat([df_pred_filtered['UPPER'].loc[ df_pred_filtered['Average'] != 0 ], df_pred_filtered['LOWER'].loc[ df_pred_filtered['Average'] != 0 ][::-1]]),
-        fill='toself',
-        fillcolor='rgba(255,165,0,0.2)',
-        line=dict(color='rgba(255,165,0,0)'),
-        hoverinfo="skip",
-        showlegend=True,
-        name='Confidence Interval'
-    ))
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0],
+            y=df_pred_filtered['Average'].loc[df_pred_filtered['Average'] != 0],
+            mode='lines+markers',
+            name='Average',
+            line=dict(color='orange')
+        ))
+
+    else:
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] == 0],
+            y=df_pred_filtered['Tonnes'].loc[df_pred_filtered['Average'] == 0],
+            mode='lines+markers',
+            name='Actual Tonnes',
+            line=dict(color='blue')
+        ))
+
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0],
+            y=df_pred_filtered['Tonnes'].loc[df_pred_filtered['Average'] != 0],
+            mode='lines+markers',
+            name='Predicted Tonnes',
+            line=dict(color='green')
+        ))
+
+        fig_pred.add_trace(go.Scatter(
+            x=df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0],
+            y=df_pred_filtered['Average'].loc[df_pred_filtered['Average'] != 0],
+            mode='lines+markers',
+            name='Average',
+            line=dict(color='orange')
+        ))
+
+        fig_pred.add_trace(go.Scatter(
+            x=pd.Series(list(df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0].to_list()) + list(df_pred_filtered['period'].loc[df_pred_filtered['Average'] != 0].to_list()[::-1])),
+            y=pd.concat([df_pred_filtered['UPPER'].loc[df_pred_filtered['Average'] != 0], df_pred_filtered['LOWER'].loc[df_pred_filtered['Average'] != 0][::-1]]),
+            fill='toself',
+            fillcolor='rgba(255,165,0,0.2)',
+            line=dict(color='rgba(255,165,0,0)'),
+            hoverinfo="skip",
+            showlegend=True,
+            name='Confidence Interval'
+        ))
 
     min_tonnes = df_pred_filtered['Tonnes'][df_pred_filtered['Tonnes'] > 0].min()
-    min_average = df_pred_filtered['Average'][df_pred_filtered['Average'] > 0].min()
+    min_average = df_pred_filtered['Average'][df_pred_filtered['Average'] > 0].min() if any(df_pred_filtered['Average'] > 0) else min_tonnes
     y_min = min(min_tonnes, min_average) * 0.95
 
     fig_pred.update_layout(
